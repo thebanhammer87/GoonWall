@@ -1,4 +1,4 @@
-## Interface: 16001, 120105
+## Interface: 16001
 ## Title: GoonWall
 ## Notes: Bridges guild chat between Goon Squad and its alt guilds on WoW Forever.
 ## Author: Goon Squad
@@ -9,6 +9,7 @@
 ## SavedVariables: GoonWallAccount
 ## SavedVariablesPerCharacter: GoonWall,GoonWallMeta,GoonWallLog
 ## X-Category: Guild
+## X-Curse-Project-ID: 1808639
 ## X-Date: 2026-11-15
 
 Lib\Load.xml
