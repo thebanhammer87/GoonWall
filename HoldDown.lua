@@ -1,0 +1,186 @@
+GoonHoldDown = {}
+GoonHoldDown.__index = GoonHoldDown
+
+--- GoonHoldDown constructor function.
+-- @param interval The length, in seconds, of the hold-down interval.
+-- @param limit The maximum hold time when the continue method is invoked.
+-- If no value is supplied, the interval value is used.
+-- @return An initialized GoonHoldDown instance.
+function GoonHoldDown:new(interval, limit)
+    assert(type(interval) == 'number')
+    assert(type(limit) == 'number' or limit == nil)
+    local self = {}
+    setmetatable(self, GoonHoldDown)
+    self.interval = interval
+    if limit then
+        self.limit = limit
+    else
+        self.limit = interval
+    end
+    self.timestamp = 0
+    self.scale = 0
+    return self
+end
+
+--- Update the timer interval.
+-- @param interval The length, in seconds, of the hold-down interval.
+-- @param limit The maximum hold time when the continue method is invoked.
+-- @return The GoonHoldDown instance.
+function GoonHoldDown:set(interval, limit)
+    assert(type(interval) == 'number')
+    goonwall.Debug(GOON_LOG_DEBUG, 'hold-down set; timer=%s, interval=%d, limit=%s', tostring(self), interval, tostring(limit))
+    self.interval = interval
+    if limit then
+        self.limit = limit
+    else
+        self.limit = interval
+    end
+    return self
+end
+
+--- Start the hold-down interval.
+-- @param f (optional) A callback function that will be called when the timer expires.
+-- @return The time at which the interval will end.
+function GoonHoldDown:start(f)
+    local function handler(frame, elapsed)
+        if not self:hold() then
+            goonwall.Debug(GOON_LOG_NOTICE, 'hold-down expired; timer=%s', tostring(self))
+            if type(f) == 'function' then
+                goonwall.Debug(GOON_LOG_NOTICE, 'triggered hold-down callback; function=%s', tostring(f))
+                f()
+            end
+            frame:SetScript('OnUpdate', nil)
+        end
+    end
+
+    local t = time()
+    local expiry = t + self.interval
+    self.timestamp = t
+    self.scale = 0
+
+    local frame = CreateFrame('frame')
+    frame:SetScript('OnUpdate', handler)
+
+    goonwall.Debug(GOON_LOG_NOTICE, 'hold-down start; timer=%s, timestamp=%d, expiry=%d, function=%s',
+            tostring(self), self.timestamp, expiry, tostring(f))
+    return expiry
+end
+
+--- Continue the hold down, scaling the interval.
+function GoonHoldDown:continue()
+    -- Pass-through for first invocation
+    if self.timestamp == 0 then
+        return self:start()
+    end
+
+    -- Increase scaling factor
+    if self.interval * 2 ^ (self.scale + 1) <= self.limit then
+        self.scale = self.scale + 1
+    end
+
+    -- Set the timer
+    local t = time()
+    local expiry = t + self.interval * 2 ^ self.scale
+    self.timestamp = t
+
+    goonwall.Debug(GOON_LOG_NOTICE, 'hold-down continue; timer=%s, timestamp=%d, scale=%d, expiry=%d',
+            tostring(self), self.timestamp, self.scale, expiry)
+
+    return expiry
+end
+
+--- Clear the hold-down timer.
+function GoonHoldDown:clear()
+    self.timestamp = 0
+    self.scale = 0
+    goonwall.Debug(GOON_LOG_NOTICE, 'hold-down cleared; timer=%s', tostring(self))
+end
+
+--- Test the hold-down status.
+-- @return True if a hold-down is in effect, false otherwise.
+function GoonHoldDown:hold()
+    if self.timestamp > 0 then
+        local t = time()
+        return self.timestamp + self.interval * 2 ^ self.scale > t
+    else
+        return false
+    end
+end
+
+
+GoonHoldDownCache = {}
+GoonHoldDownCache.__index = GoonHoldDownCache
+
+--- GoonHoldDownCache constructor function.
+-- @param interval The length, in seconds, of the hold-down interval.
+-- @param soft_max Table size threshold for compaction.
+-- @param hard_max Limit on table size.
+-- @return An initialized GoonHoldDownCache instance.
+function GoonHoldDownCache:new(interval, soft_max, hard_max)
+    assert(type(interval) == 'number')
+    assert(type(soft_max) == 'number')
+    assert(type(hard_max) == 'number')
+    local self = {}
+    setmetatable(self, GoonHoldDownCache)
+    self.interval = interval
+    self.soft_max = soft_max
+    self.hard_max = hard_max
+    self.cache = {}
+    return self
+end
+
+--- Test the hold-down status of an element.
+-- @return True if a hold-down is in effect, false otherwise.
+function GoonHoldDownCache:hold(s)
+    local t = time()
+    local rv = false
+
+    -- Check for hold-down. self.cache[k] stores the time the entry was
+    -- registered; an entry is "live" while (t - registered) < interval.
+    if self.cache[s] ~= nil and t - self.cache[s] < self.interval then
+        goonwall.Debug(GOON_LOG_DEBUG, 'cache hit; target=%s, cache=%s', s, tostring(self))
+        rv = true
+    else
+        if self.cache[s] ~= nil then
+            goonwall.Debug(GOON_LOG_DEBUG, 'cache expire; target=%s, cache=%s', s, tostring(self))
+        else
+            goonwall.Debug(GOON_LOG_DEBUG, 'cache miss; target=%s, cache=%s', s, tostring(self))
+        end
+        self.cache[s] = t
+    end
+
+    -- Count live entries.  self.cache is hash-keyed, so #self.cache is
+    -- always 0 -- enumerate with pairs() instead.
+    local count = 0
+    for _ in pairs(self.cache) do
+        count = count + 1
+    end
+
+    -- Soft prune: drop expired entries.
+    if count > self.soft_max then
+        for k, registered in pairs(self.cache) do
+            if t - registered >= self.interval then
+                self.cache[k] = nil
+                count = count - 1
+                goonwall.Debug(GOON_LOG_DEBUG, 'cache soft prune; target=%s, cache=%s', k, tostring(self))
+            end
+        end
+    end
+
+    -- Hard prune: evict oldest until under the cap.
+    if count > self.hard_max then
+        local index = {}
+        for k, registered in pairs(self.cache) do
+            table.insert(index, {registered, k})
+        end
+        table.sort(index, function(a, b) return a[1] < b[1] end)
+        local to_evict = count - self.hard_max
+        for i = 1, to_evict do
+            self.cache[index[i][2]] = nil
+            goonwall.Debug(GOON_LOG_DEBUG, 'cache hard prune; target=%s, cache=%s', index[i][2], tostring(self))
+        end
+    end
+
+    return rv
+end
+

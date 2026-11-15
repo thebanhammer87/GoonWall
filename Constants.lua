@@ -1,0 +1,71 @@
+--
+-- Settings
+--
+GOON_MODE_ACCOUNT = 'account'
+GOON_MODE_CHARACTER = 'character'
+
+
+--
+-- UI
+--
+GOON_UI_COLOR_INACTIVE = {0.5, 0.5, 0.5 }
+GOON_UI_COLOR_ACTIVE = {1.0, 1.0, 1.0}
+GOON_UI_COLOR_MODE = {1.0, 1.0, 0.0 }
+
+
+--
+-- Debugging levels
+--
+GOON_LOG_NONE       = 0
+GOON_LOG_ERROR      = 1
+GOON_LOG_WARNING    = 2
+GOON_LOG_NOTICE     = 3
+GOON_LOG_INFO       = 4
+GOON_LOG_DEBUG      = 5
+
+
+--
+-- Channel types
+--
+GOON_CTYPE_GUILD      = 0
+GOON_CTYPE_ADDON      = 2
+
+
+--
+-- Message types
+--
+GOON_MTYPE_NONE           = 0
+GOON_MTYPE_CHAT           = 1
+GOON_MTYPE_BROADCAST      = 2
+GOON_MTYPE_CONTROL        = 3
+GOON_MTYPE_REQUEST        = 4
+GOON_MTYPE_RESPONSE       = 5
+GOON_MTYPE_NOTICE         = 6
+GOON_MTYPE_ADDON          = 7
+GOON_MTYPE_EXTERNAL       = 8
+
+
+--
+-- Limits
+--
+GOON_MAX_MESSAGE_LENGTH   = 255
+GOON_TX_QUEUE_MAX         = 20
+
+
+--
+-- Intervals, timeouts, and thresholds
+--
+GOON_TIMEOUT_CONFIG_HOLD      = 300
+GOON_TIMEOUT_RELOAD_HOLD      = 300
+
+GOON_CHANNEL_FAILURE_HOLD     = 10
+GOON_CHANNEL_FAILURE_HOLD_MAX = 900
+
+GOON_TX_MAX_AGE               = 120
+GOON_TX_RETRY                 = 5
+
+GOON_CACHE_COMEMBER_HOLD      = 180
+GOON_CACHE_COMEMBER_SOFT_MAX  = 8
+GOON_CACHE_COMEMBER_HARD_MAX  = 32
+
+
