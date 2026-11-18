@@ -95,6 +95,11 @@ end
 -- Handles both the legacy ([string "..."], `fn') and 12.x (path, 'fn') formats.
 function goonwall.Caller(depth)
     local s = type(debugstack) == 'function' and debugstack(depth, 1, 0) or ''
+    -- In tainted execution (after touching a secret) debugstack() returns a
+    -- secret string; any string op on it raises "string conversion" errors.
+    if goonwall.IsSecret(s) or type(s) ~= 'string' then
+        return '?'
+    end
     local file, loc = strmatch(s, '([^/\\"%[%]]+%.lua)"?%]?:(%d+):')
     local f = strmatch(s, "in function [`']([^']+)'")
     return format('%s:%s:%s', file or '', loc or '', f or '?')

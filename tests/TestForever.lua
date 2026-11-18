@@ -675,6 +675,12 @@ function TestDebugFormat:test_caller_formats()
     lu.assertEquals(goonwall.Caller(3), 'Channel.lua:9:receive')
     debugstack = nil
     lu.assertEquals(goonwall.Caller(3), '::?')
+    local secret = {}
+    issecretvalue = function(v) return v == secret end
+    debugstack = function() return secret end
+    lu.assertEquals(goonwall.Caller(3), '?')
+    debugstack = nil
+    issecretvalue = nil
 end
 
 
