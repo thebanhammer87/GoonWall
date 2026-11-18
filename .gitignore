@@ -48,3 +48,6 @@ luac.out
 # Directories
 docs/
 docs/*
+
+# Release packages
+dist/

@@ -4,3 +4,5 @@ license-output: LICENSE
 ignore:
   - tests
   - docs
+  - scripts
+  - dist
