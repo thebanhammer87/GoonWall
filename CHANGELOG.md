@@ -2,6 +2,13 @@
 
 This project uses [Semantic Versioning](http://semver.org/).
 
+## 2.0.1 - 2026-11-18
+
+- Fixed "attempt to perform string conversion on a secret string value" with
+  debug logging on: after an event touches a secret value, `debugstack()`
+  returns a secret, and the debug log tried to pattern-match it. The log line
+  now falls back to `?` for its file and line.
+
 ## 2.0.0 - 2026-11-15
 
 Renamed to **GoonWall** (Phase 3). Phase 2 hardening is included.
