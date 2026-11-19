@@ -130,6 +130,12 @@ function GoonConfig:load()
         return false
     end
 
+    -- GetInfoText is protected in combat; reloaded once unrestricted.
+    if goonwall.InRestrictedChat() then
+        goonwall.Debug(GOON_LOG_DEBUG, 'guild configuration deferred during combat or battleground.')
+        return false
+    end
+
     -- Abort if configuration is not yet available
     local info                          -- Guild information text.
     if C_GuildInfo and C_GuildInfo.GetInfoText then
@@ -137,7 +143,7 @@ function GoonConfig:load()
     else
         info = GetGuildInfoText()
     end
-    if info == '' then
+    if not goonwall.IsUsableString(info) then
         goonwall.Debug(GOON_LOG_WARNING, 'guild configuration not available.')
         return false
     end

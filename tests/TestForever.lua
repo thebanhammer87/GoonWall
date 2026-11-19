@@ -551,7 +551,7 @@ function TestSendQueue:setUp()
         end,
     }
     goonwall.settings = GoonSettings:new()
-    goonwall.config = { guild_id = 'Goon' }
+    goonwall.config = { guild_id = 'Goon', valid = true }
     self.chan = GoonChannel:new()
     self.chan:configure(1, 'goonbridge', 'pw')
 end
@@ -609,7 +609,7 @@ function TestSendQueue:test_queue_cap()
         self.chan:send(GOON_MTYPE_CHAT, 'm' .. i)
     end
     lu.assertEquals(#self.chan.tx_queue, GOON_TX_QUEUE_MAX)
-    lu.assertEquals(self.chan.tx_queue[1].segment, 'C#Goon##m6')
+    lu.assertEquals(self.chan.tx_queue[1].message, 'm6')
 end
 
 function TestSendQueue:test_send_error_requeues_and_rolls_back_hash()
@@ -638,8 +638,18 @@ function TestSendQueue:test_regen_event_flushes()
     self.locked = false
     goonwall.addon_loaded = true
     goonwall.config.channel = { guild = self.chan }
+    goonwall.config.valid = true
     GoonWall_OnEvent(nil, 'PLAYER_REGEN_ENABLED')
     lu.assertEquals(#self.sent, 1)
+end
+
+function TestSendQueue:test_message_before_config_load_gets_tag_when_sent()
+    goonwall.config = { guild_id = '', valid = false }
+    self.chan:send(GOON_MTYPE_CHAT, 'early')
+    lu.assertEquals(self.sent, {})
+    goonwall.config = { guild_id = 'Goon', valid = true }
+    self:fire_timers()
+    lu.assertEquals(self.sent, { { 'C#Goon##early', 'CHANNEL', 7 } })
 end
 
 function TestSendQueue:test_lockdown_secret_or_error_is_unlocked()
@@ -752,6 +762,7 @@ function TestRestricted:setUp()
     self.chan:configure(1, 'goonbridge', 'pw')
     goonwall.config = {
         guild_id = 'Goon',
+        valid = true,
         channel = { guild = self.chan },
         timer = { channel = { hold = function() return false end } },
         reset = function() self.resets = self.resets + 1 end,
@@ -854,6 +865,27 @@ function TestRestricted:test_join_deferred_while_restricted()
     lu.assertEquals(self.joins, 1)
     lu.assertFalse(self.chan.join_pending)
     lu.assertEquals(self.chan.number, 7)
+end
+
+function TestRestricted:test_invalid_config_refreshed_after_battleground()
+    local refreshes = 0
+    goonwall.config.refresh = function() refreshes = refreshes + 1 end
+    goonwall.config.valid = false
+    self.instance = 'pvp'
+    GoonWall_OnEvent(nil, 'PLAYER_ENTERING_WORLD')
+    lu.assertEquals(refreshes, 0)
+    self.instance = 'none'
+    GoonWall_OnEvent(nil, 'PLAYER_ENTERING_WORLD')
+    lu.assertEquals(refreshes, 1)
+    self.combat = true
+    GoonWall_OnEvent(nil, 'ZONE_CHANGED_NEW_AREA')
+    lu.assertEquals(refreshes, 1)
+    self.combat = false
+    GoonWall_OnEvent(nil, 'PLAYER_REGEN_ENABLED')
+    lu.assertEquals(refreshes, 2)
+    goonwall.config.valid = true
+    GoonWall_OnEvent(nil, 'ZONE_CHANGED_NEW_AREA')
+    lu.assertEquals(refreshes, 2)
 end
 
 function TestRestricted:test_channel_ui_update_burst_refreshes_once()

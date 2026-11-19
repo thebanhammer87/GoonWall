@@ -50,7 +50,8 @@ function goonwall.ReportSuppressedDebug()
     if goonwall.suppressed_debug > 0 then
         local n = goonwall.suppressed_debug
         goonwall.suppressed_debug = 0
-        goonwall.Write('%d debug line(s) not shown during combat or battleground; see the log.', n)
+        goonwall.Write('%d debug line(s) not shown during combat or battleground; %s.', n,
+                goonwall.settings:get('log') and 'see the log' or 'use /gw log on to keep them')
     end
     return true
 end

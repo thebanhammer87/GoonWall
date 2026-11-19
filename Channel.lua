@@ -310,12 +310,13 @@ function GoonChannel:tl_send(type, message)
         return
     end
 
-    -- Format the message segment
-    local segment = strsub(strjoin('#', opcode, goonwall.config.guild_id, '', message), 1, GOON_MAX_MESSAGE_LENGTH)
-
-    -- Send the message
-    self:tl_enqueue(segment)
+    -- The guild tag is added at transmit time; it is unknown until the configuration loads.
+    self:tl_enqueue(opcode, message)
     self:tl_flush()
+end
+
+local function format_segment(entry)
+    return strsub(strjoin('#', entry.opcode, goonwall.config.guild_id, '', entry.message), 1, GOON_MAX_MESSAGE_LENGTH)
 end
 
 local function now()
@@ -332,31 +333,32 @@ local function send_segment(segment, number)
 end
 
 
---- Add a segment to the channel transmit queue, dropping the oldest when full.
--- @param segment Segment to enqueue.
--- @return Number of segments in queue after the insertion.
-function GoonChannel:tl_enqueue(segment)
+--- Add a message to the channel transmit queue, dropping the oldest when full.
+-- @param opcode Segment opcode.
+-- @param message Message content.
+-- @return Number of messages in queue after the insertion.
+function GoonChannel:tl_enqueue(opcode, message)
     while #self.tx_queue >= GOON_TX_QUEUE_MAX do
         local dropped = tremove(self.tx_queue, 1)
-        goonwall.Debug(GOON_LOG_WARNING, 'transmit queue full; dropped segment: %q', dropped.segment)
+        goonwall.Debug(GOON_LOG_WARNING, 'transmit queue full; dropped message: %q', dropped.message)
     end
-    tinsert(self.tx_queue, { segment = segment, time = now() })
-    goonwall.Debug(GOON_LOG_DEBUG, 'enqueued segment: %q', segment)
+    tinsert(self.tx_queue, { opcode = opcode, message = message, time = now() })
+    goonwall.Debug(GOON_LOG_DEBUG, 'enqueued message: %q', message)
     return #self.tx_queue
 end
 
---- Remove a segment from the channel transmit queue, skipping expired ones.
--- @return Segment removed from the queue or nil if queue is empty.
+--- Remove a message from the channel transmit queue, skipping expired ones.
+-- @return Queue entry removed or nil if queue is empty.
 function GoonChannel:tl_dequeue()
     while true do
         local entry = tremove(self.tx_queue, 1)
         if not entry then
             return
         elseif now() - entry.time > GOON_TX_MAX_AGE then
-            goonwall.Debug(GOON_LOG_WARNING, 'expired segment dropped: %q', entry.segment)
+            goonwall.Debug(GOON_LOG_WARNING, 'expired message dropped: %q', entry.message)
         else
-            goonwall.Debug(GOON_LOG_DEBUG, 'dequeued segment: %q', entry.segment)
-            return entry.segment, entry.time
+            goonwall.Debug(GOON_LOG_DEBUG, 'dequeued message: %q', entry.message)
+            return entry
         end
     end
 end
@@ -393,12 +395,18 @@ function GoonChannel:tl_flush()
         self:tl_schedule()
         return 0
     end
+    if not goonwall.config.valid then
+        goonwall.Debug(GOON_LOG_NOTICE, 'guild configuration not loaded; %d segment(s) held.', #self.tx_queue)
+        self:tl_schedule()
+        return 0
+    end
     local count = 0
     while true do
-        local segment, queued = self:tl_dequeue()
-        if not segment then
+        local entry = self:tl_dequeue()
+        if not entry then
             break
         end
+        local segment = format_segment(entry)
         local hash = crc.Hash(segment)
         self.tx_hash[hash] = (self.tx_hash[hash] or 0) + 1
         goonwall.Debug(GOON_LOG_INFO, 'channel=%d, segment=%q', self.number, segment)
@@ -406,7 +414,7 @@ function GoonChannel:tl_flush()
         if not ok then
             goonwall.Debug(GOON_LOG_WARNING, 'send failed; requeued: %s', tostring(err))
             self.tx_hash[hash] = self.tx_hash[hash] > 1 and self.tx_hash[hash] - 1 or nil
-            tinsert(self.tx_queue, 1, { segment = segment, time = queued })
+            tinsert(self.tx_queue, 1, entry)
             self:tl_schedule()
             break
         end

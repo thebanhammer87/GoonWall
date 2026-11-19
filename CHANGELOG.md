@@ -11,6 +11,11 @@ This project uses [Semantic Versioning](http://semver.org/).
 - Fixed the bridge channel being dropped on entering a battleground: guild
   status changes there, or an unreadable status, are checked after you leave.
   Channel joins (blocked in battlegrounds) also wait until you leave.
+- Fixed errors when logging in or reloading in combat: the guild info text is
+  protected then, so the configuration now loads once combat or the
+  battleground ends.
+- Fixed messages sent right after login or a reload showing an empty `<>`
+  co-guild tag: the tag is now added when the message is sent, not queued.
 - Channel refreshes from bursts of `CHANNEL_UI_UPDATE` are coalesced.
 
 ## 2.0.1 - 2026-11-18

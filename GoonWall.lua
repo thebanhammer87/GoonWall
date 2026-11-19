@@ -353,7 +353,9 @@ function goonwall.OnRestrictionChange(event)
     local lockdown, combat, instance = goonwall.RestrictionState()
     goonwall.Debug(GOON_LOG_DEBUG, 'restriction check; event=%s, lockdown=%s, combat=%s, instance=%s',
             tostring(event), tostring(lockdown), tostring(combat), tostring(instance))
-    goonwall.ReportSuppressedDebug()
+    if goonwall.ReportSuppressedDebug() and not goonwall.config.valid and goonwall.GetGuildName() ~= nil then
+        goonwall.config:refresh()
+    end
     if not goonwall.InRestrictedInstance() then
         if goonwall.guild_check_pending then
             goonwall.CheckGuildStatus()

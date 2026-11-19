@@ -120,6 +120,60 @@ function TestConfigInfoText:test_falls_back_when_method_missing()
     lu.assertEquals(source, 'global')
 end
 
+--
+-- GoonConfig:load() - guild info text is protected in battlegrounds.
+--
+
+TestConfigRestricted = {}
+
+function TestConfigRestricted:setUp()
+    self.saved = {
+        GetGuildInfoText = GetGuildInfoText,
+        GetGuildName = goonwall.GetGuildName,
+        settings = goonwall.settings,
+        IsInInstance = IsInInstance,
+    }
+    goonwall.settings = GoonSettings:new()
+    goonwall.GetGuildName = function() return 'TestGuild' end
+    self.reads = 0
+    self.instance = 'none'
+    IsInInstance = function() return self.instance ~= 'none', self.instance end
+    GetGuildInfoText = function() self.reads = self.reads + 1 return self.info end
+end
+
+function TestConfigRestricted:tearDown()
+    GetGuildInfoText = self.saved.GetGuildInfoText
+    goonwall.GetGuildName = self.saved.GetGuildName
+    goonwall.settings = self.saved.settings
+    IsInInstance = self.saved.IsInInstance
+end
+
+function TestConfigRestricted:test_not_read_in_battleground()
+    self.instance = 'pvp'
+    self.info = 'GW:c:Chan:pass\n'
+    local config = GoonConfig:new()
+    lu.assertFalse(config:load())
+    lu.assertEquals(self.reads, 0)
+    lu.assertFalse(config.valid)
+end
+
+function TestConfigRestricted:test_not_read_in_combat()
+    local saved = InCombatLockdown
+    InCombatLockdown = function() return true end
+    self.info = 'GW:c:Chan:pass\n'
+    local config = GoonConfig:new()
+    lu.assertFalse(config:load())
+    InCombatLockdown = saved
+    lu.assertEquals(self.reads, 0)
+end
+
+function TestConfigRestricted:test_nil_info_is_not_available()
+    self.info = nil
+    local config = GoonConfig:new()
+    lu.assertFalse(config:load())
+    lu.assertFalse(config.valid)
+end
+
 
 --
 -- Run the tests
