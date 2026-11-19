@@ -27,7 +27,7 @@ This project uses [Semantic Versioning](http://semver.org/).
 
 ## 2.0.0 - 2026-11-15
 
-Renamed to **GoonWall** (Phase 3). Phase 2 hardening is included.
+Renamed to **GoonWall**.
 
 - Renamed the addon, its TOC, SavedVariables (`GoonWall*`), slash commands
   (`/goonwall`, `/gw`), addon message prefix and every global (`goonwall`,
@@ -45,7 +45,7 @@ Renamed to **GoonWall** (Phase 3). Phase 2 hardening is included.
 
 ## 1.13.0 - 2026-11-15
 
-WoW Forever port, Phase 1 (see `docs/FOREVER_PLAN.md`).
+WoW Forever port.
 
 - TOC: `## Interface: 16001, 120105`.
 - Identify the player by GUID instead of by `Name-Realm`. Forever names are
