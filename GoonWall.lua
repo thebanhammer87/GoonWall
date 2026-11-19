@@ -146,7 +146,7 @@ function GoonWall_OnLoad(self)
     self:RegisterEvent('PLAYER_GUILD_UPDATE')
     self:RegisterEvent('PLAYER_LOGIN')
     -- Optional: flush held sends after lockdown; pcall since unknown events raise.
-    for _, event in ipairs({ 'PLAYER_REGEN_ENABLED', 'ENCOUNTER_END', 'CHALLENGE_MODE_COMPLETED' }) do
+    for _, event in ipairs({ 'PLAYER_REGEN_ENABLED', 'ENCOUNTER_END', 'CHALLENGE_MODE_COMPLETED', 'ZONE_CHANGED_NEW_AREA' }) do
         pcall(self.RegisterEvent, self, event)
     end
 
@@ -298,6 +298,79 @@ end
 
 --[[ -----------------------------------------------------------------------
 
+Restricted Chat Handling
+
+--]] -----------------------------------------------------------------------
+
+local function in_guild()
+    if type(IsInGuild) ~= 'function' then
+        return false
+    end
+    local ok, rv = pcall(IsInGuild)
+    return not ok or goonwall.IsSecret(rv) or rv == true
+end
+
+--- Reset the configuration if guild membership or rank changed.
+-- Deferred in battlegrounds and while the status is unreadable.
+function goonwall.CheckGuildStatus()
+    local new_status = goonwall.GetGuildStatus()
+    local member = in_guild()
+    local restricted = goonwall.InRestrictedInstance()
+    goonwall.Debug(GOON_LOG_DEBUG, 'guild status; was=%s, now=%s, in_guild=%s, restricted=%s',
+            tostring(goonwall.guild_status), tostring(new_status), tostring(member), tostring(restricted))
+    if restricted or new_status == nil or (new_status == '' and member) then
+        goonwall.guild_check_pending = true
+        return false
+    end
+    goonwall.guild_check_pending = false
+    if goonwall.guild_status ~= new_status then
+        goonwall.config:reset()
+        goonwall.guild_status = new_status
+        return true
+    end
+    return false
+end
+
+--- Coalesce bursts of CHANNEL_UI_UPDATE into one channel refresh.
+function goonwall.QueueChannelRefresh()
+    local function refresh()
+        goonwall.refresh_queued = false
+        if goonwall.GetGuildName() ~= nil then
+            goonwall.config:refresh_channels()
+        end
+    end
+    if not (C_Timer and type(C_Timer.After) == 'function') then
+        return refresh()
+    end
+    if not goonwall.refresh_queued then
+        goonwall.refresh_queued = true
+        C_Timer.After(GOON_CHANNEL_REFRESH_DELAY, refresh)
+    end
+end
+
+--- Catch up on work held back during combat, lockdown or battlegrounds.
+function goonwall.OnRestrictionChange(event)
+    local lockdown, combat, instance = goonwall.RestrictionState()
+    goonwall.Debug(GOON_LOG_DEBUG, 'restriction check; event=%s, lockdown=%s, combat=%s, instance=%s',
+            tostring(event), tostring(lockdown), tostring(combat), tostring(instance))
+    goonwall.ReportSuppressedDebug()
+    if not goonwall.InRestrictedInstance() then
+        if goonwall.guild_check_pending then
+            goonwall.CheckGuildStatus()
+        end
+        for _, channel in pairs(goonwall.config.channel) do
+            if channel.join_pending then
+                goonwall.QueueChannelRefresh()
+            end
+        end
+    end
+    for _, channel in pairs(goonwall.config.channel) do
+        channel:tl_flush()
+    end
+end
+
+--[[ -----------------------------------------------------------------------
+
 Frame Event Functions
 
 --]] -----------------------------------------------------------------------
@@ -400,9 +473,7 @@ function GoonWall_OnEvent(self, event, ...)
 
     elseif event == 'CHANNEL_UI_UPDATE' then
 
-        if goonwall.GetGuildName() ~= nil then
-            goonwall.config:refresh_channels()
-        end
+        goonwall.QueueChannelRefresh()
 
         if goonwall.config.timer.channel:hold() then
             for _, v in ipairs({ GetChannelList() }) do
@@ -454,22 +525,16 @@ function GoonWall_OnEvent(self, event, ...)
         C_ChatInfo.RegisterAddonMessagePrefix("GoonWall")
         -- Apply compatibility workarounds
         goonwall.EnableCompatibility()
-
+        goonwall.OnRestrictionChange(event)
 
     elseif event == 'PLAYER_GUILD_UPDATE' then
 
-        local new_status = goonwall.GetGuildStatus()
-        if goonwall.guild_status ~= new_status then
-            -- Looks like our status has changed.
-            goonwall.config:reset()
-            goonwall.guild_status = new_status
-        end
+        goonwall.CheckGuildStatus()
 
-    elseif event == 'PLAYER_REGEN_ENABLED' or event == 'ENCOUNTER_END' or event == 'CHALLENGE_MODE_COMPLETED' then
+    elseif event == 'PLAYER_REGEN_ENABLED' or event == 'ENCOUNTER_END' or event == 'CHALLENGE_MODE_COMPLETED' or
+            event == 'ZONE_CHANGED_NEW_AREA' then
 
-        for _, channel in pairs(goonwall.config.channel) do
-            channel:tl_flush()
-        end
+        goonwall.OnRestrictionChange(event)
 
     elseif event == 'PLAYER_LOGIN' then
 

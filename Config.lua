@@ -331,7 +331,7 @@ function GoonConfig:refresh_channels()
     if self.timer.channel:hold() then
         goonwall.Debug(GOON_LOG_INFO, 'channel join blocked.')
     else
-        goonwall.Debug(GOON_LOG_INFO, 'refreshing channels.')
+        goonwall.Debug(GOON_LOG_DEBUG, 'refreshing channels.')
         self.channel.guild:join()
     end
 end

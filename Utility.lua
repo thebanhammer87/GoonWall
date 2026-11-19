@@ -41,6 +41,21 @@ function goonwall.Log(msg)
 end
 
 
+--- Report verbose debug lines not shown while chat was restricted.
+-- @return True if chat is no longer restricted, false otherwise.
+function goonwall.ReportSuppressedDebug()
+    if goonwall.InRestrictedChat() then
+        return false
+    end
+    if goonwall.suppressed_debug > 0 then
+        local n = goonwall.suppressed_debug
+        goonwall.suppressed_debug = 0
+        goonwall.Write('%d debug line(s) not shown during combat or battleground; see the log.', n)
+    end
+    return true
+end
+
+
 --- Write a message to the default chat frame.
 -- @param ... A list of the string and arguments for substitution using the syntax of string.format.
 function goonwall.Write(...)
@@ -70,7 +85,11 @@ function goonwall.Debug(level, ...)
     local trace = format('debug/%d [%s] %s', level, goonwall.Caller(3), goonwall.SafeFormat(...))
     goonwall.Log(trace)
     if goonwall.settings:get('verbose') then
-        DEFAULT_CHAT_FRAME:AddMessage(format('|cff009a7dGoonWall:|r |cff778899%s|r', trace))
+        if goonwall.InRestrictedChat() then
+            goonwall.suppressed_debug = goonwall.suppressed_debug + 1
+        else
+            DEFAULT_CHAT_FRAME:AddMessage(format('|cff009a7dGoonWall:|r |cff778899%s|r', trace))
+        end
     end
 end
 
@@ -143,6 +162,44 @@ function goonwall.InChatLockdown()
         return ok and not goonwall.IsSecret(locked) and locked == true
     end
     return false
+end
+
+
+local function safe_call(fn)
+    if type(fn) ~= 'function' then
+        return
+    end
+    local ok, a, b = pcall(fn)
+    if not ok or goonwall.IsSecret(a) or goonwall.IsSecret(b) then
+        return
+    end
+    return a, b
+end
+
+
+--- Inputs to the restricted chat test, for diagnostics.
+-- @return lockdown, combat, instance type
+function goonwall.RestrictionState()
+    local _, instance = safe_call(IsInInstance)
+    return goonwall.InChatLockdown(), safe_call(InCombatLockdown) == true, instance or 'none'
+end
+
+
+local function is_restricted_instance(instance)
+    return instance == 'pvp' or instance == 'arena'
+end
+
+
+function goonwall.InRestrictedInstance()
+    local _, instance = safe_call(IsInInstance)
+    return is_restricted_instance(instance)
+end
+
+
+--- Test whether chat messages may be secret: chat lockdown, combat, battlegrounds and arenas.
+function goonwall.InRestrictedChat()
+    local lockdown, combat, instance = goonwall.RestrictionState()
+    return lockdown or combat or is_restricted_instance(instance)
 end
 
 
@@ -288,7 +345,7 @@ function goonwall.GetGuildName(target)
         target = 'Player'
     end
     local name, _, _, realm = GetGuildInfo(target)
-    if name == nil then
+    if not goonwall.IsUsableString(name) or goonwall.IsSecret(realm) then
         return
     end
     return goonwall.GlobalName(name, realm)
@@ -307,11 +364,13 @@ end
 
 
 --- Get a string with the player's fully-qualified guild name and numeric rank.
--- @return A string identifier, the empty string if not in a guild.
+-- @return A string identifier, the empty string if not in a guild, nil if unreadable.
 function goonwall.GetGuildStatus()
     -- Realm omitted: on Forever it is a shard label that can change between sessions.
     local name, _, rank = GetGuildInfo('Player')
-    if not goonwall.IsUsableString(name) then
+    if goonwall.IsSecret(name) or goonwall.IsSecret(rank) then
+        return
+    elseif not goonwall.IsUsableString(name) then
         return ''
     else
         return string.format('%s-%d', name, rank or 0)

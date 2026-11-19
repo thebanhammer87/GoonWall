@@ -19,7 +19,7 @@ streamer forks.
    The folder must be named `GoonWall` and contain `GoonWall.toc`.
 3. Enable **GoonWall** on the character select screen's AddOns list and log in.
 
-After login you'll see `GoonWall: v2.0.1 loaded.` About 30 seconds later you'll see
+After login you'll see `GoonWall: v2.0.2 loaded.` About 30 seconds later you'll see
 `Connected to confederation on channel N.` That's all a member needs to do.
 
 ## Setting it up (officers)

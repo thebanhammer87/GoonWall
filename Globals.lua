@@ -24,6 +24,9 @@ goonwall.player = UnitName('player')
 goonwall.player_guid = nil
 goonwall.player_name_confirmed = false
 goonwall.guild_status = ''
+goonwall.guild_check_pending = false
+goonwall.refresh_queued = false
+goonwall.suppressed_debug = 0
 
 local build_info = { GetBuildInfo() }
 goonwall.build = {

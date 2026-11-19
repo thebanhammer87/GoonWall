@@ -2,6 +2,17 @@
 
 This project uses [Semantic Versioning](http://semver.org/).
 
+## 2.0.2 - 2026-11-19
+
+- Fixed chat breaking in battlegrounds and combat with verbose debugging on:
+  debug lines written to the chat frame tainted Blizzard's chat while
+  messages were secret. They are now only logged in combat, chat lockdown and
+  battlegrounds, with a count shown afterwards.
+- Fixed the bridge channel being dropped on entering a battleground: guild
+  status changes there, or an unreadable status, are checked after you leave.
+  Channel joins (blocked in battlegrounds) also wait until you leave.
+- Channel refreshes from bursts of `CHANNEL_UI_UPDATE` are coalesced.
+
 ## 2.0.1 - 2026-11-18
 
 - Fixed "attempt to perform string conversion on a secret string value" with

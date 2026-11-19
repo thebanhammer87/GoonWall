@@ -33,6 +33,7 @@ function GoonChannel:initialize()
     self.password = ''
     self.number = 0
     self.stale = true
+    self.join_pending = false
     self.fdelay = GoonHoldDown:new(GOON_CHANNEL_FAILURE_HOLD, GOON_CHANNEL_FAILURE_HOLD_MAX)
     self.tx_queue = {}
     self.tx_hash = {}
@@ -140,8 +141,18 @@ function GoonChannel:join()
         -- Already connected
         return true
 
+    elseif goonwall.InRestrictedInstance() then
+
+        -- JoinTemporaryChannel is blocked in battlegrounds
+        local lockdown, combat, instance = goonwall.RestrictionState()
+        goonwall.Debug(GOON_LOG_DEBUG, 'join deferred; lockdown=%s, combat=%s, instance=%s',
+                tostring(lockdown), tostring(combat), tostring(instance))
+        self.join_pending = true
+        return false
+
     else
 
+        self.join_pending = false
         goonwall.Debug(GOON_LOG_INFO, 'joining channel; channel=%s, password=%s',
                 goonwall.Redact(self.name), goonwall.Redact(self.password))
         JoinTemporaryChannel(self.name, self.password)
@@ -474,7 +485,9 @@ function GoonChannel:tl_receive(...)
     local guid = select(12, ...)
 
     if not goonwall.IsUsableString(segment) or goonwall.IsSecret(sender) or goonwall.IsSecret(guid) then
-        goonwall.Debug(GOON_LOG_DEBUG, 'channel=%d, dropped unusable or secret segment', self.number)
+        goonwall.Debug(GOON_LOG_DEBUG, 'channel=%d, dropped unusable or secret segment; secret segment=%s, sender=%s, guid=%s',
+                self.number, tostring(goonwall.IsSecret(segment)), tostring(goonwall.IsSecret(sender)),
+                tostring(goonwall.IsSecret(guid)))
         return
     end
 

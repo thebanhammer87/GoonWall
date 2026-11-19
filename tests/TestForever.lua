@@ -700,4 +700,215 @@ function TestOutboundSecret:test_secret_message_not_forwarded()
 end
 
 
+-- Restricted chat: combat, lockdown, battlegrounds
+
+local RESTRICT_GLOBALS = {
+    'IsInInstance', 'InCombatLockdown', 'IsInGuild', 'GetGuildInfo', 'JoinTemporaryChannel',
+    'GoonWall', 'GoonWallAccount', 'GoonWallMeta', 'GoonWallLog',
+}
+local RESTRICT_FIELDS = {
+    'suppressed_debug', 'guild_status', 'guild_check_pending',
+    'refresh_queued', 'addon_loaded',
+}
+
+local function append(a, b)
+    local t = {}
+    for _, v in ipairs(a) do table.insert(t, v) end
+    for _, v in ipairs(b) do table.insert(t, v) end
+    return t
+end
+
+TestRestricted = {}
+
+function TestRestricted:setUp()
+    self.restore = snapshot(append(GLOBALS, RESTRICT_GLOBALS), append(FIELDS, RESTRICT_FIELDS))
+    self.instance = 'none'
+    self.combat = false
+    self.lines = {}
+    self.timers = {}
+    self.joins = 0
+    IsInInstance = function() return self.instance ~= 'none', self.instance end
+    InCombatLockdown = function() return self.combat end
+    IsInGuild = function() return true end
+    GetGuildInfo = function() return 'Goon Squad', 'Goon', 2, nil end
+    JoinTemporaryChannel = function() self.joins = self.joins + 1 end
+    GetChannelName = function() return self.joins > 0 and 7 or 0 end
+    C_ChatInfo = {
+        InChatMessagingLockdown = function() return false end,
+        RegisterAddonMessagePrefix = function() end,
+    }
+    C_Timer = { After = function(_, cb) table.insert(self.timers, cb) end }
+    DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) table.insert(self.lines, m) end }
+    goonwall.Log = function() end
+    goonwall.suppressed_debug = 0
+    goonwall.guild_status = 'Goon Squad-2'
+    goonwall.guild_check_pending = false
+    goonwall.refresh_queued = false
+    goonwall.addon_loaded = true
+    GoonWall, GoonWallAccount, GoonWallMeta, GoonWallLog = nil, nil, nil, nil
+    goonwall.settings = GoonSettings:new()
+    self.resets = 0
+    self.chan = GoonChannel:new()
+    self.chan:configure(1, 'goonbridge', 'pw')
+    goonwall.config = {
+        guild_id = 'Goon',
+        channel = { guild = self.chan },
+        timer = { channel = { hold = function() return false end } },
+        reset = function() self.resets = self.resets + 1 end,
+        refresh_channels = function() self.chan:join() end,
+    }
+end
+
+function TestRestricted:tearDown() self.restore() end
+
+function TestRestricted:fire_timers()
+    local timers = self.timers
+    self.timers = {}
+    for _, cb in ipairs(timers) do cb() end
+end
+
+function TestRestricted:test_restriction_sources()
+    lu.assertFalse(goonwall.InRestrictedChat())
+    self.instance = 'pvp'
+    lu.assertTrue(goonwall.InRestrictedChat())
+    self.instance = 'arena'
+    lu.assertTrue(goonwall.InRestrictedChat())
+    self.instance = 'party'
+    lu.assertFalse(goonwall.InRestrictedChat())
+    self.combat = true
+    lu.assertTrue(goonwall.InRestrictedChat())
+    self.combat = false
+    C_ChatInfo.InChatMessagingLockdown = function() return true end
+    lu.assertTrue(goonwall.InRestrictedChat())
+end
+
+function TestRestricted:test_secret_or_failing_apis_are_unrestricted()
+    issecretvalue = function(v) return v == 'pvp' end
+    self.instance = 'pvp'
+    lu.assertFalse(goonwall.InRestrictedChat())
+    issecretvalue = nil
+    IsInInstance = function() error('nope') end
+    InCombatLockdown = function() error('nope') end
+    lu.assertFalse(goonwall.InRestrictedChat())
+end
+
+function TestRestricted:test_verbose_debug_not_printed_while_restricted()
+    goonwall.settings:set('debug', GOON_LOG_DEBUG)
+    goonwall.settings:set('verbose', true)
+    self.lines = {}
+    self.instance = 'pvp'
+    goonwall.Debug(GOON_LOG_DEBUG, 'one')
+    goonwall.Debug(GOON_LOG_DEBUG, 'two')
+    lu.assertEquals(self.lines, {})
+    lu.assertEquals(goonwall.suppressed_debug, 2)
+    self.instance = 'none'
+    goonwall.Debug(GOON_LOG_DEBUG, 'three')
+    lu.assertEquals(#self.lines, 1)
+end
+
+function TestRestricted:test_suppressed_debug_reported_once_unrestricted()
+    goonwall.suppressed_debug = 3
+    self.combat = true
+    lu.assertFalse(goonwall.ReportSuppressedDebug())
+    lu.assertEquals(self.lines, {})
+    self.combat = false
+    lu.assertTrue(goonwall.ReportSuppressedDebug())
+    lu.assertEquals(#self.lines, 1)
+    lu.assertStrContains(self.lines[1], '3 debug line(s) not shown')
+    goonwall.ReportSuppressedDebug()
+    lu.assertEquals(#self.lines, 1)
+end
+
+function TestRestricted:test_write_error_and_replication_stay_live_in_battleground()
+    local calls = 0
+    goonwall.ChatFrame_MessageEventHandler = function() calls = calls + 1 end
+    goonwall.render_fallback = {}
+    NUM_CHAT_WINDOWS = 1
+    GetChatWindowMessages = function() return 'GUILD' end
+    ChatFrame1 = { AddMessage = function() end }
+    self.instance = 'pvp'
+    self.combat = true
+    goonwall.Write('hello')
+    goonwall.Error('oops')
+    goonwall.ReplicateMessage('GUILD', 'hi', 'Alt1', { 'hi', 'Nil Goat' })
+    lu.assertEquals(#self.lines, 2)
+    lu.assertEquals(calls, 1)
+end
+
+function TestRestricted:test_join_not_deferred_in_open_world_combat()
+    self.combat = true
+    lu.assertTrue(self.chan:join())
+    lu.assertEquals(self.joins, 1)
+end
+
+function TestRestricted:test_join_deferred_while_restricted()
+    self.instance = 'pvp'
+    lu.assertFalse(self.chan:join())
+    lu.assertEquals(self.joins, 0)
+    lu.assertTrue(self.chan.join_pending)
+    lu.assertEquals(self.chan.stats.fconn, 0)
+    self.instance = 'none'
+    GoonWall_OnEvent(nil, 'PLAYER_ENTERING_WORLD')
+    lu.assertEquals(self.joins, 0)
+    self:fire_timers()
+    lu.assertEquals(self.joins, 1)
+    lu.assertFalse(self.chan.join_pending)
+    lu.assertEquals(self.chan.number, 7)
+end
+
+function TestRestricted:test_channel_ui_update_burst_refreshes_once()
+    for _ = 1, 10 do
+        GoonWall_OnEvent(nil, 'CHANNEL_UI_UPDATE')
+    end
+    lu.assertEquals(#self.timers, 1)
+    self:fire_timers()
+    lu.assertEquals(self.joins, 1)
+end
+
+function TestRestricted:test_guild_update_ignored_while_restricted()
+    self.instance = 'pvp'
+    GetGuildInfo = function() return nil end
+    GoonWall_OnEvent(nil, 'PLAYER_GUILD_UPDATE')
+    lu.assertEquals(self.resets, 0)
+    lu.assertTrue(goonwall.guild_check_pending)
+    GetGuildInfo = function() return 'Goon Squad', 'Goon', 2, nil end
+    self.instance = 'none'
+    GoonWall_OnEvent(nil, 'ZONE_CHANGED_NEW_AREA')
+    lu.assertEquals(self.resets, 0)
+    lu.assertFalse(goonwall.guild_check_pending)
+end
+
+function TestRestricted:test_unreadable_guild_status_does_not_reset()
+    GetGuildInfo = function() return nil end
+    lu.assertFalse(goonwall.CheckGuildStatus())
+    issecretvalue = function(v) return v == 'Goon Squad' end
+    GetGuildInfo = function() return 'Goon Squad', 'Goon', 2, nil end
+    lu.assertFalse(goonwall.CheckGuildStatus())
+    lu.assertEquals(self.resets, 0)
+    lu.assertTrue(goonwall.guild_check_pending)
+end
+
+function TestRestricted:test_real_guild_changes_reset()
+    GetGuildInfo = function() return 'Goon Squad', 'Goon', 5, nil end
+    lu.assertTrue(goonwall.CheckGuildStatus())
+    lu.assertEquals(goonwall.guild_status, 'Goon Squad-5')
+    IsInGuild = function() return false end
+    GetGuildInfo = function() return nil end
+    lu.assertTrue(goonwall.CheckGuildStatus())
+    lu.assertEquals(goonwall.guild_status, '')
+    lu.assertEquals(self.resets, 2)
+end
+
+function TestRestricted:test_flush_sends_in_battleground_and_combat()
+    local sent = 0
+    self.joins = 1
+    C_ChatInfo.SendChatMessage = function() sent = sent + 1 end
+    self.chan.number = 7
+    self.instance = 'pvp'
+    self.combat = true
+    self.chan:send(GOON_MTYPE_CHAT, 'a')
+    lu.assertEquals(sent, 1)
+end
+
+
 os.exit(lu.run())
