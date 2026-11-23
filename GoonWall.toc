@@ -3,14 +3,14 @@
 ## Notes: Bridges guild chat between Goon Squad and its alt guilds on WoW Forever.
 ## Author: Goon Squad
 ## X-Credits: Fork of GreenWall by Mark Rogaski (MIT)
-## Version: 2.0.2
+## Version: 2.0.3
 ## URL: https://github.com/thebanhammer87/GoonWall
 ## DefaultState: enabled
 ## SavedVariables: GoonWallAccount
 ## SavedVariablesPerCharacter: GoonWall,GoonWallMeta,GoonWallLog
 ## X-Category: Guild
 ## X-Curse-Project-ID: 1808639
-## X-Date: 2026-11-18
+## X-Date: 2026-11-23
 
 Lib\Load.xml
 Constants.lua
