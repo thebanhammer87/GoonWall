@@ -420,11 +420,19 @@ function GoonWall_OnEvent(self, event, ...)
     if event == 'CHAT_MSG_CHANNEL' then
 
         local chanNum = select(8, ...)
+        local chanName = select(9, ...)
+        local guild = goonwall.config.channel.guild
 
         if goonwall.IsSecret(chanNum) then
             goonwall.Debug(GOON_LOG_DEBUG, 'event=%s, secret channel number; ignored', event)
-        elseif chanNum == goonwall.config.channel.guild.number then
-            goonwall.config.channel.guild:receive(goonwall.handlerGuildChat, ...)
+        elseif chanNum == guild.number then
+            guild:receive(goonwall.handlerGuildChat, ...)
+        elseif guild.number ~= chanNum and guild:is_configured() and goonwall.IsUsableString(chanName) and
+                goonwall.iCmp(chanName, guild.name) then
+            -- The cached number is stale (client auto-rejoined the channel, or it was renumbered).
+            goonwall.Debug(GOON_LOG_NOTICE, 'bridge channel number changed; was=%d, now=%d', guild.number, chanNum)
+            guild.number = chanNum
+            guild:receive(goonwall.handlerGuildChat, ...)
         end
 
     elseif event == 'CHAT_MSG_GUILD' then
