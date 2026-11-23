@@ -2,6 +2,10 @@
 
 This project uses [Semantic Versioning](http://semver.org/).
 
+## 2.0.3 - 2026-11-23
+- Fixed when CHAT_MSG_CHANNEL id does not match cached channel number messages
+  were silently dropped.
+
 ## 2.0.2 - 2026-11-19
 
 - Fixed chat breaking in battlegrounds and combat with verbose debugging on:
