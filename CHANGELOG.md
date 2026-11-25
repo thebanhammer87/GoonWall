@@ -2,6 +2,18 @@
 
 This project uses [Semantic Versioning](http://semver.org/).
 
+## 2.0.4 - 2026-11-25
+- Fixed an endless leave/rejoin loop on the bridge channel (often after a
+  party change) that needed a relog to stop. Other members joining or leaving
+  fired `CHANNEL_UI_UPDATE`, the channel briefly read as disconnected, and the
+  rejoin set off the same thing for everyone else. The channel is now only
+  rejoined when the client reports leaving it (`YOU_LEFT` or `YOU_KICKED`), on
+  login, on configuration load, or after a battleground or combat.
+- Rejoins within 30 seconds of the last join now back off (10 seconds,
+  doubling up to 15 minutes) instead of retrying immediately.
+- Debug logging now shows bridge channel notices and, on a quick drop, the
+  channel list. Channel status includes a `churn` count.
+
 ## 2.0.3 - 2026-11-23
 - Fixed when CHAT_MSG_CHANNEL id does not match cached channel number messages
   were silently dropped.

@@ -483,8 +483,10 @@ function GoonWall_OnEvent(self, event, ...)
 
     elseif event == 'CHANNEL_UI_UPDATE' then
 
-        goonwall.QueueChannelRefresh()
-
+        -- Never rejoin from here: other members' joins and leaves fire this, and
+        -- GetChannelName can briefly read 0 while still joined. Rejoining on that
+        -- bounces our membership, which fires this event for everyone else.
+        -- Disconnects are handled by the YOU_LEFT/YOU_KICKED notice below.
         if goonwall.config.timer.channel:hold() then
             for _, v in ipairs({ GetChannelList() }) do
                 if v == 'General' then
@@ -501,7 +503,9 @@ function GoonWall_OnEvent(self, event, ...)
             goonwall.Debug(GOON_LOG_DEBUG, 'event=%s, secret arguments; ignored', event)
         elseif number == goonwall.config.channel.guild.number then
 
-            if action == 'YOU_LEFT' then
+            goonwall.Debug(GOON_LOG_INFO, 'bridge channel notice; action=%s, number=%s', tostring(action), tostring(number))
+
+            if action == 'YOU_LEFT' or action == 'YOU_KICKED' then
                 goonwall.config.channel.guild.stats.disco = goonwall.config.channel.guild.stats.disco + 1
                 goonwall.config:refresh_channels()
             end

@@ -713,7 +713,7 @@ end
 -- Restricted chat: combat, lockdown, battlegrounds
 
 local RESTRICT_GLOBALS = {
-    'IsInInstance', 'InCombatLockdown', 'IsInGuild', 'GetGuildInfo', 'JoinTemporaryChannel',
+    'IsInInstance', 'InCombatLockdown', 'IsInGuild', 'GetGuildInfo', 'JoinTemporaryChannel', 'time', 'GetChannelList',
     'GoonWall', 'GoonWallAccount', 'GoonWallMeta', 'GoonWallLog',
 }
 local RESTRICT_FIELDS = {
@@ -737,6 +737,7 @@ function TestRestricted:setUp()
     self.lines = {}
     self.timers = {}
     self.joins = 0
+    time = os.time
     IsInInstance = function() return self.instance ~= 'none', self.instance end
     InCombatLockdown = function() return self.combat end
     IsInGuild = function() return true end
@@ -888,13 +889,35 @@ function TestRestricted:test_invalid_config_refreshed_after_battleground()
     lu.assertEquals(refreshes, 2)
 end
 
-function TestRestricted:test_channel_ui_update_burst_refreshes_once()
+function TestRestricted:test_channel_ui_update_never_rejoins()
+    GetChannelList = function() return end
     for _ = 1, 10 do
         GoonWall_OnEvent(nil, 'CHANNEL_UI_UPDATE')
     end
-    lu.assertEquals(#self.timers, 1)
     self:fire_timers()
-    lu.assertEquals(self.joins, 1)
+    lu.assertEquals(self.joins, 0)
+end
+
+function TestRestricted:test_bridge_left_or_kicked_rejoins()
+    local connected = true
+    local clock = 1000
+    time = function() return clock end
+    JoinTemporaryChannel = function() self.joins = self.joins + 1; connected = true end
+    GetChannelName = function() return connected and 7 or 0 end
+    self.chan.number = 7
+    for _, action in ipairs({ 'YOU_LEFT', 'YOU_KICKED' }) do
+        connected = false
+        clock = clock + GOON_CHANNEL_CHURN_WINDOW
+        GoonWall_OnEvent(nil, 'CHAT_MSG_CHANNEL_NOTICE', action, '', '', '7. goonbridge', '', '', 0, 7, 'goonbridge')
+    end
+    lu.assertEquals(self.joins, 2)
+    lu.assertEquals(self.chan.stats.disco, 2)
+end
+
+function TestRestricted:test_other_channel_notice_does_not_rejoin()
+    self.chan.number = 7
+    GoonWall_OnEvent(nil, 'CHAT_MSG_CHANNEL_NOTICE', 'YOU_LEFT', '', '', '3. other', '', '', 0, 3, 'other')
+    lu.assertEquals(self.joins, 0)
 end
 
 function TestRestricted:test_guild_update_ignored_while_restricted()
@@ -940,6 +963,65 @@ function TestRestricted:test_flush_sends_in_battleground_and_combat()
     self.combat = true
     self.chan:send(GOON_MTYPE_CHAT, 'a')
     lu.assertEquals(sent, 1)
+end
+
+function TestRestricted:test_channel_churn_backs_off()
+    local clock = 1000
+    local connected = false
+    time = function() return clock end
+    JoinTemporaryChannel = function() self.joins = self.joins + 1; connected = true end
+    GetChannelName = function() return connected and 1 or 0 end
+    GetChannelList = function() return 1, 'General', false, 2, 'goonbridge', false end
+
+    lu.assertTrue(self.chan:join())
+    lu.assertEquals(self.joins, 1)
+
+    -- Kicked a second later: no immediate rejoin, a retry is scheduled.
+    clock = clock + 1
+    connected = false
+    lu.assertFalse(self.chan:join())
+    lu.assertFalse(self.chan:join())
+    lu.assertEquals(self.joins, 1)
+    lu.assertEquals(self.chan.stats.churn, 1)
+    lu.assertEquals(#self.timers, 1)
+
+    -- Hold expires: rejoins once.
+    clock = clock + GOON_CHANNEL_FAILURE_HOLD
+    lu.assertTrue(self.chan:join())
+    lu.assertEquals(self.joins, 2)
+
+    -- Kicked again: the hold doubles.
+    clock = clock + 1
+    connected = false
+    lu.assertFalse(self.chan:join())
+    clock = clock + GOON_CHANNEL_FAILURE_HOLD
+    lu.assertFalse(self.chan:join())
+    lu.assertEquals(self.joins, 2)
+    clock = clock + GOON_CHANNEL_FAILURE_HOLD
+    lu.assertTrue(self.chan:join())
+    lu.assertEquals(self.joins, 3)
+
+    -- Holds for the churn window: backoff lifted.
+    clock = clock + GOON_CHANNEL_CHURN_WINDOW
+    lu.assertTrue(self.chan:join())
+    lu.assertFalse(self.chan.churning)
+    lu.assertFalse(self.chan.fdelay:hold())
+    lu.assertEquals(self.chan.fdelay.scale, 0)
+end
+
+function TestRestricted:test_channel_dropped_after_window_rejoins_immediately()
+    local clock = 1000
+    local connected = false
+    time = function() return clock end
+    JoinTemporaryChannel = function() self.joins = self.joins + 1; connected = true end
+    GetChannelName = function() return connected and 1 or 0 end
+
+    lu.assertTrue(self.chan:join())
+    clock = clock + GOON_CHANNEL_CHURN_WINDOW
+    connected = false
+    lu.assertTrue(self.chan:join())
+    lu.assertEquals(self.joins, 2)
+    lu.assertEquals(self.chan.stats.churn, 0)
 end
 
 

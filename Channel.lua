@@ -34,6 +34,9 @@ function GoonChannel:initialize()
     self.number = 0
     self.stale = true
     self.join_pending = false
+    self.joined_at = nil
+    self.churning = false
+    self.retry_join_pending = false
     self.fdelay = GoonHoldDown:new(GOON_CHANNEL_FAILURE_HOLD, GOON_CHANNEL_FAILURE_HOLD_MAX)
     self.tx_queue = {}
     self.tx_hash = {}
@@ -45,6 +48,7 @@ function GoonChannel:initialize()
         fconn = 0,
         leave = 0,
         disco = 0,
+        churn = 0,
     }
     return self
 end
@@ -138,8 +142,41 @@ function GoonChannel:join()
 
     elseif self:is_connected() then
 
-        -- Already connected
+        -- Already connected; once a churning connection holds, lift the backoff.
+        if self.churning and self.joined_at and time() - self.joined_at >= GOON_CHANNEL_CHURN_WINDOW then
+            self.churning = false
+            self.fdelay:clear()
+            goonwall.Debug(GOON_LOG_NOTICE, 'channel stable; number=%d, name=%s', self.number, goonwall.Redact(self.name))
+        end
         return true
+
+    elseif self.joined_at and time() - self.joined_at < GOON_CHANNEL_CHURN_WINDOW then
+
+        -- Dropped right after joining: something keeps removing the channel.
+        -- Back off instead of rejoining in a tight loop.
+        self.stats.churn = self.stats.churn + 1
+        self.joined_at = nil
+        self.churning = true
+        local expiry = self.fdelay:continue()
+        goonwall.Debug(GOON_LOG_WARNING, 'channel dropped right after joining; rejoin held until %d; name=%s, churn=%d',
+                expiry, goonwall.Redact(self.name), self.stats.churn)
+        if type(GetChannelList) == 'function' then
+            local list = { GetChannelList() }
+            local slots = {}
+            for i = 1, #list, 3 do
+                local id, cname = list[i], list[i + 1]
+                if goonwall.IsSecret(id) or goonwall.IsSecret(cname) then
+                    tinsert(slots, '?')
+                elseif cname == self.name then
+                    tinsert(slots, format('%s=%s', tostring(id), goonwall.Redact(cname)))
+                else
+                    tinsert(slots, format('%s=%s', tostring(id), tostring(cname)))
+                end
+            end
+            goonwall.Debug(GOON_LOG_WARNING, 'channel list at drop: %s', table.concat(slots, ', '))
+        end
+        self:schedule_join(expiry)
+        return false
 
     elseif goonwall.InRestrictedInstance() then
 
@@ -168,8 +205,11 @@ function GoonChannel:join()
         else
 
             self.number = number
+            self.joined_at = time()
             self.stats.sconn = self.stats.sconn + 1
-            self.fdelay:clear()
+            if not self.churning then
+                self.fdelay:clear()
+            end
             goonwall.Debug(GOON_LOG_NOTICE, 'joined channel; number=%d, name=%s, password=%s',
                     self.number, goonwall.Redact(self.name), goonwall.Redact(self.password))
             goonwall.Write('Connected to confederation on channel %d.', self.number)
@@ -197,6 +237,21 @@ function GoonChannel:join()
 
     end
 
+end
+
+--- Retry the join once a hold-down expires.
+-- @param expiry The time at which the hold-down ends.
+function GoonChannel:schedule_join(expiry)
+    if self.retry_join_pending or not (C_Timer and type(C_Timer.After) == 'function') then
+        return
+    end
+    self.retry_join_pending = true
+    C_Timer.After(math.max(1, expiry - time() + 1), function()
+        self.retry_join_pending = false
+        if self:is_configured() then
+            goonwall.QueueChannelRefresh()
+        end
+    end)
 end
 
 function GoonChannel.hide(frame, name)
@@ -243,10 +298,10 @@ Informational Methods
 -- @param label An identifier for the channel.
 function GoonChannel:dump_status(label)
     label = label or 'channel'
-    goonwall.Write('%s: connected=%s, number=%d, channel=%s, password=%s, stale=%s (sconn=%d, fconn=%d, leave=%d, disco=%d)',
+    goonwall.Write('%s: connected=%s, number=%d, channel=%s, password=%s, stale=%s (sconn=%d, fconn=%d, leave=%d, disco=%d, churn=%d)',
                 label, tostring(self:is_connected()), self.number, goonwall.Redact(self.name),
                 goonwall.Redact(self.password), tostring(self:is_stale()),
-                self.stats.sconn, self.stats.fconn, self.stats.leave, self.stats.disco)
+                self.stats.sconn, self.stats.fconn, self.stats.leave, self.stats.disco, self.stats.churn)
 end
 
 
